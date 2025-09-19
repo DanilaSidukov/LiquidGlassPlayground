@@ -1,5 +1,6 @@
 library;
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_renderer/liquid_glass_renderer.dart';
 
@@ -102,49 +103,56 @@ class _CustomBottomNavBarState extends State<CustomBottomNavBar>
               onTapUp: (_) => onPanEnd(context, (index) {
                 widget.onTap?.call(index);
               }),
-              child: Stack(
-                clipBehavior: Clip.hardEdge,
-                alignment: Alignment.centerLeft,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(_bottomBarsPadding),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: List.generate(
-                        widget.children.length,
-                        (index) => GestureDetector(
-                          onTap: () => _onItemTap(index),
-                          child: Container(
-                            key: itemKeys[index],
-                            child: _NavBarItem(
-                              index: index,
-                              item: widget.children[index],
-                              selected: widget.currentIndex == index,
-                              onTap: () => _onItemTap(index),
+              child: ValueListenableBuilder(
+                valueListenable: selectorController.boxWidth,
+                builder: (context, boxWidth, _) {
+                  return ValueListenableBuilder(
+                    valueListenable: selectorController.posX,
+                    builder: (context, posX, _) {
+                      return Stack(
+                        clipBehavior: Clip.hardEdge,
+                        alignment: Alignment.centerLeft,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.all(_bottomBarsPadding),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: List.generate(
+                                widget.children.length,
+                                (index) => GestureDetector(
+                                  onTap: () => _onItemTap(index),
+                                  child: Container(
+                                    key: itemKeys[index],
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                    ),
+                                    child: _NavBarItem(
+                                      index: index,
+                                      selectorX: posX,
+                                      selectorWidth: boxWidth,
+                                      item: widget.children[index],
+                                      selected: widget.currentIndex == index,
+                                      onTap: () => _onItemTap(index),
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  ListenableBuilder(
-                    listenable: Listenable.merge([
-                      selectorController.posX,
-                      selectorController.boxWidth,
-                    ]),
-                    builder: (context, _) {
-                      return AnimatedPositioned(
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeOut,
-                        left: selectorController.posX.value,
-                        top: _bottomBarsPadding,
-                        width: selectorController.boxWidth.value,
-                        height: boxHeight,
-                        child: _SelectorWidget(isDragging: isDragging),
+                          AnimatedPositioned(
+                            duration: const Duration(milliseconds: 100),
+                            curve: Curves.easeOut,
+                            left: posX,
+                            top: _bottomBarsPadding,
+                            width: boxWidth,
+                            height: boxHeight,
+                            child: _SelectorWidget(isDragging: isDragging),
+                          ),
+                        ],
                       );
                     },
-                  ),
-                ],
+                  );
+                },
               ),
             ),
           );
@@ -154,33 +162,85 @@ class _CustomBottomNavBarState extends State<CustomBottomNavBar>
   }
 }
 
-class _NavBarItem extends StatelessWidget {
+class _NavBarItem extends StatefulWidget {
   final BottomNavBarItem item;
   final int index;
   final bool selected;
   final VoidCallback onTap;
+
+  final double selectorWidth;
+  final double selectorX;
 
   const _NavBarItem({
     required this.item,
     required this.index,
     required this.selected,
     required this.onTap,
+    required this.selectorX,
+    required this.selectorWidth,
   });
 
   @override
+  State<_NavBarItem> createState() => _NavBarItemState();
+}
+
+class _NavBarItemState extends State<_NavBarItem> {
+  late double start = 0;
+  late double end = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final renderBox = context.findRenderObject() as RenderBox;
+      final position = renderBox.localToGlobal(Offset.zero);
+      final size = renderBox.size;
+
+      setState(() {
+        start = position.dx - _containerPadding;
+        end = position.dx + size.width + _containerPadding;
+      });
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+    return ShaderMask(
+      blendMode: BlendMode.srcIn,
+      shaderCallback: (bounds) {
+        final selectorStart = widget.selectorX;
+        final selectorEnd = widget.selectorX + widget.selectorWidth;
+
+        final localStart = (selectorStart - start).clamp(0.0, bounds.width);
+        final localEnd = (selectorEnd - start).clamp(0.0, bounds.width);
+
+        if (localEnd <= 0 || localStart >= bounds.width) {
+          return LinearGradient(
+            colors: [Colors.white, Colors.white],
+          ).createShader(bounds);
+        }
+
+        final relativeStart = localStart / bounds.width;
+        final relativeEnd = localEnd / bounds.width;
+
+        return LinearGradient(
+          colors: [
+            Colors.white,
+            CupertinoColors.systemBlue,
+            CupertinoColors.systemBlue,
+            CupertinoColors.systemBlue,
+            Colors.white,
+          ],
+          stops: [0.0, relativeStart, relativeStart, relativeEnd, 1.0],
+        ).createShader(bounds);
+      },
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(item.icon, color: selected ? Colors.white : Colors.white70),
+          Icon(widget.item.icon),
           Text(
-            item.title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-            ),
+            widget.item.title,
+            style: const TextStyle(fontWeight: FontWeight.w600),
           ),
         ],
       ),
